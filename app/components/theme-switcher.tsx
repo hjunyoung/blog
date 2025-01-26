@@ -4,19 +4,31 @@ import { useEffect, useState } from 'react';
 
 type Theme = 'light' | 'dark';
 
-const getInitialTheme = (): Theme => {
-  if (!('theme' in localStorage)) {
-    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-    return isDark ? 'dark' : 'light';
-  }
-  return localStorage.getItem('theme') as Theme;
-};
+// getInitialTheme을 useState의 initialState로 사용하면
+// 'ReferenceError: localStorage is not defined error' 발생
+
+// const getInitialTheme = (): Theme => {
+//   if (!('theme' in localStorage)) {
+//     const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+//     return isDark ? 'dark' : 'light';
+//   }
+//   return localStorage.getItem('theme') as Theme;
+// };
 
 export const ThemeSwitcher = () => {
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [theme, setTheme] = useState<Theme>('dark');
 
   useEffect(() => {
-    applyTheme(theme);
+    if (!('theme' in localStorage)) {
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const defaultTheme = isDark ? 'dark' : 'light';
+      // return localStorage.getItem('theme') as Theme;
+      applyTheme(defaultTheme);
+      return;
+    }
+
+    const currentTheme = localStorage.getItem('theme') as Theme;
+    applyTheme(currentTheme);
   }, []);
 
   const applyTheme = (nextTheme: Theme) => {
