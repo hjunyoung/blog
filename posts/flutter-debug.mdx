@@ -1,0 +1,68 @@
+---
+title: '[Flutter] VSCode/Cursor에서 iOS simulator와 Android emulator 동시 debugging 하기'
+publishedAt: '2025-01-28'
+summary: 'VSCode/Cursor에서 debugging 할 때 iOS simulator와 Android emulator를 동시에 실행하는 방법'
+tags: ['Flutter', 'Cursor', 'Debugging', 'iOS Simulator', 'Android Emulator']
+---
+
+Cursor에서 Flutter 개발을 하다 iOS와 Android 환경에서 동시에 디버깅을 하고 싶어서 iOS 시뮬레이터와 Android 에뮬레이터를 동시에 실행하며 디버깅할 수 있도록 설정하는 방법을 정리합니다.
+
+<br />
+
+## 연결된 디바이스 확인
+
+아래 명령어를 통해 연결된 디바이스를 확인할 수 있습니다.
+
+```bash
+flutter devices
+```
+
+명령어 실행 시 아래와 같이 연결된 디바이스가 출력됩니다.
+
+![Image](https://github.com/user-attachments/assets/9dfc6b04-957f-4bd1-938b-c28379607b4c)
+
+<br />
+
+## 여러 디바이스에서 디버깅 실행
+
+Cursor에서 User 또는 Workspace의 settings.json 파일을 열어 아래 내용을 추가합니다.
+
+```json
+{
+  ...
+
+  "launch": {
+    "configurations": [
+      {
+        "name": "Flutter iOS",
+        "request": "launch",
+        "type": "dart",
+        "deviceId": "6AF29F21-AD4A-4968-AAE0-F5CA90B890EF" // iOS simulator ID
+      },
+      {
+        "name": "Flutter Android",
+        "request": "launch",
+        "type": "dart",
+        "deviceId": "emulator-5554" // Android emulator ID
+      }
+    ],
+    "compounds": [
+      {
+        "name": "Flutter Multi-Device",
+        "configurations": ["Flutter iOS", "Flutter Android"]
+      }
+    ]
+  }
+}
+```
+
+iOS simulator ID와 Android emulator ID는 `flutter doctor` 명령어로 나온 결과에서 확인할 수 있습니다.
+
+<br />
+
+## 디버깅 실행하기
+
+Cursor에서 Run and Debug 메뉴로 이동합니다. (⌘ + ⇧ + D)
+이후 아래 사진처럼 Flutter Multi-Device를 선택하고 실행하면 iOS simulator와 Android emulator가 동시에 실행됩니다.
+
+![Image](https://github.com/user-attachments/assets/64a30b01-8670-4967-a146-59abd034f5a0)
