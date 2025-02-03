@@ -1,0 +1,221 @@
+---
+title: [React] react-intl 번역 파일 Code Splitting해서 로딩 시간 최적화
+publishedAt: '2025-02-03'
+summary: 'react-intl에서 번역 json 파일에 code splitting 적용해서 로딩 시간 최적화한 방법 정리'
+tags: ['React', 'Code Splitting', 'lazy', 'Optimization', '']
+---
+
+기존 프로젝트에서 react-intl을 사용하여 번역 파일을 관리하고 있었습니다. 해당 프로젝트는 외국인 대상 프로젝트로 en, ko, vi, ru, zh, uz, th, mn, my, km, id, ne, tl, si, bn, ur, ja 이렇게 17개의 언어를 지원하고 있었습니다.
+
+인수인계받은 시점에서 각 언어별 번역 파일이 초기 로딩 시점에서 모두 로드되고 있었고, 이로 인해 초기 로딩 시간이 오래 걸리는 문제가 있었습니다.
+
+```ts
+// assets/locales/index.ts
+import en from 'assets/locales/en.json';
+import ko from 'assets/locales/ko.json';
+import vi from 'assets/locales/vi.json';
+import ru from 'assets/locales/ru.json';
+import zh from 'assets/locales/zh.json';
+import uz from 'assets/locales/uz.json';
+import th from 'assets/locales/th.json';
+import mn from 'assets/locales/mn.json';
+import my from 'assets/locales/my.json';
+import km from 'assets/locales/km.json';
+import id from 'assets/locales/id.json';
+import ne from 'assets/locales/ne.json';
+import tl from 'assets/locales/tl.json';
+import si from 'assets/locales/si.json';
+import bn from 'assets/locales/bn.json';
+import ur from 'assets/locales/ur.json';
+import ja from 'assets/locales/ja.json';
+
+export { en, ko, vi, ru, zh, uz, th, mn, my, km, id, ne, tl, si, bn, ur, ja };
+```
+
+<br />
+
+# dynamic import `import()`
+
+dynamic import는 비동기적으로 모듈을 로드하는 방법입니다. 이를 통해 모듈을 동적으로 로드하여 초기 로딩 시간을 줄일 수 있습니다.
+
+```ts
+// assets/locales/index.ts
+import { LanguageCodeType } from 'const/languageCodes';
+
+export const loadLocaleData = (locale: LanguageCodeType) => {
+  // switch (locale) {
+  //   case "en":
+  //     return import("assets/locales/en.json");
+  //   case "ko":
+  //     return import("assets/locales/ko.json");
+  //   case "vi":
+  //     return import("assets/locales/vi.json");
+  //   case "ru":
+  //     return import("assets/locales/ru.json");
+  //   case "zh":
+  //     return import("assets/locales/zh.json");
+  //   case "uz":
+  //     return import("assets/locales/uz.json");
+  //   case "th":
+  //     return import("assets/locales/th.json");
+  //   case "mn":
+  //     return import("assets/locales/mn.json");
+  //   case "my":
+  //     return import("assets/locales/my.json");
+  //   case "km":
+  //     return import("assets/locales/km.json");
+  //   case "id":
+  //     return import("assets/locales/id.json");
+  //   case "ne":
+  //     return import("assets/locales/ne.json");
+  //   case "tl":
+  //     return import("assets/locales/tl.json");
+  //   case "si":
+  //     return import("assets/locales/si.json");
+  //   case "bn":
+  //     return import("assets/locales/bn.json");
+  //   case "ur":
+  //     return import("assets/locales/ur.json");
+  //   case "ja":
+  //     return import("assets/locales/ja.json");
+  // }
+
+  return import(`assets/locales/${locale}.json`);
+};
+```
+
+<br />
+
+```tsx
+// App.tsx
+import { loadLocaleData } from 'assets/locales';
+
+const App = () => {
+  const [messages, setMessages] = useState({});
+
+  useEffect(() => {
+    loadLocaleData(language).then((messages) => {
+      setMessages(messages.default as MessageType);
+    });
+  });
+
+  ...
+}
+```
+
+`loadLocaleData` 함수는 언어 코드를 인자로 받아서 해당 언어의 json 파일을 동적으로 import 하는 함수입니다. import() 함수는 Promise를 반환하므로, 이 Promise를 사용해서 비동기적으로 load된 번역 데이터를 처리할 수 있습니다.
+
+<br />
+
+이렇게 사용자가 필요로 하는 언어파일만 로드하도록 하여 초기 로딩 시간을 609ms -> 460ms로 줄일 수 있었습니다. 초기에 load되는 데이터의 크기는 15.6MB -> 8.9MB로 줄어들었습니다.
+
+<br />
+<br />
+
+# 번역 json 파일에 번역 key 값이 없는 경우 기본값 보여주기
+
+프로젝트에 기능이 추가되면서 서비스 내에서 모든 언어로 번역될 필요가 없는 경우가 많이 생겼습니다. 이런 경우엔 영어나 일어 번역만 있어도 충분했습니다.
+
+react-intl에서는 json 파일에 key 값에 해당하는 번역 value가 없는 경우 key값을 보여주기 때문에 기존에는 모든 json 파일에 영어 번역을 추가하고 있었고, 이로 인해 필요 없는 json 파일의 크기가 커지는 문제가 있었습니다.
+
+이렇게 영어 번역을 모든 번역 파일에 추가하지 않고, useLanguage hook을 만들어서 특정 번역만 필요한 경우 사용해 UI Component에서 hard coding으로 번역을 추가했습니다.
+
+```tsx
+import { LanguageCodeType } from 'const/languageCodes';
+import { useIntl } from 'react-intl';
+
+const useLanguages = () => {
+  const intl = useIntl();
+
+  const isKorean = intl.locale === 'ko';
+  const isJapanese = intl.locale === 'ja';
+
+  const isLanguage = (languageCode: LanguageCodeType) => {
+    return intl.locale === languageCode;
+  };
+
+  return { isKorean, isJapanese, isLanguage };
+};
+
+export default useLanguages;
+
+// languageCodes.ts
+export const languageCodes = [
+  { code: 'ko', name: '한국어' },
+  { code: 'en', name: 'English' },
+  { code: 'zh', name: '中文' },
+  { code: 'es', name: 'Español' },
+  { code: 'ja', name: '日本語' },
+  { code: 'vi', name: 'Tiếng Việt' },
+  { code: 'ru', name: 'Русский' },
+  { code: 'uz', name: "o'zbek" },
+  { code: 'th', name: 'แบบไทย' },
+  { code: 'mn', name: 'Монгол' },
+  { code: 'my', name: 'မြန်မာ' },
+  { code: 'km', name: 'ខ្មែរ' },
+  { code: 'id', name: 'bahasa Indonesia' },
+  { code: 'ne', name: 'नेपाली' },
+  { code: 'tl', name: 'Filipino' },
+  { code: 'si', name: 'සිංහල' },
+  { code: 'bn', name: 'বাংলা' },
+  { code: 'ur', name: 'اردو' },
+] as const;
+
+export type LanguageCodeType = (typeof languageCodes)[number]['code'];
+export type LanguageNameType = (typeof languageCodes)[number]['name'];
+```
+
+이 방법의 문제점은 특정 언어에 대한 번역이 필요한 모든 component마다 useLanguage hook을 번거롭게 사용해야 한다는 점과, 추후에 추가 언어에 대한 번역이 필요한 경우 모든 부분은 일일이 다 고쳐야 한다는 점입니다.
+
+<br />
+
+이러한 문제점을 해결하기 위해 설정된 언어가 ko, en이 인 경우에는 각각 ko.json, en.json을 로드하고, 그 외의 언어는 모두 en.json과 해당 언어에 대한 json을 합쳐서 로드하는 방법을 사용했습니다.
+
+```ts
+// index.ts
+
+export const loadLocaleData = (locale: LanguageCodeType) => {
+  // ko, en이 아닌 경우 json에 key가 없는 경우에 default로 en 값을 이용
+  if (locale === 'ko' || locale === 'en') {
+    return Promise.all([import(`assets/locales/${locale}.json`)]);
+  } else {
+    return Promise.all([
+      import('assets/locales/en.json'), // 영어가 앞에 있어야 기존에 있는 번역을 영어 번역으로 덮어쓰우지 않음
+      import(`assets/locales/${locale}.json`),
+    ]);
+  }
+};
+```
+
+<br />
+
+```tsx
+// App.tsx
+const App = () => {
+ useEffect(() => {
+    loadLocaleData(language).then((messages: { default: MessageType }[]) => {
+      const message = messages.reduce((acc, cur) => {
+        return { ...acc, ...cur.default };
+      }, {} as MessageType);
+      setMessages(message);
+    });
+
+    ...
+
+  }, [language]);
+
+}
+
+```
+
+이렇게 함으로써 번역 key를 보고 없는 경우 기본값으로 영어 번역을 보여주는 기능을 구현할 수 있었습니다.
+
+<br />
+
+# 더 알아볼 것
+react-intl config를 수정하여 default locale이나 default message를 설정하는 방법
+
+# 참고자료
+
+[How to reexport \`\*\` from a module that uses \`export =\`](https://stackoverflow.com/questions/41892470/how-to-reexport-from-a-module-that-uses-export)
+[dynamic import](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/import)
