@@ -1,0 +1,148 @@
+---
+title: [React] Subdomain별로 다르게 동작하는 코드 리팩토링하기 - 2. const enum 활용
+publishedAt: '2025-02-04T12:00:00.000Z'
+summary: 'URL submain에 따라 다르게 동작하는 코드 리팩토링하기'
+tags: ['React', 'Refactoring', 'const enum']
+---
+
+[지난 글](/blog/subdomain-1)에서 `getSubdomain` 함수를 만들어서 고객사별로 다르게 동작하는 경우에 처리하는 방법을 유지보수하기 쉽게 개선했습니다.
+
+이번 글에서는 이 코드에서 발생한 문제들을 해결하기 위해 class와 builder pattern을 활용하여 리팩토링 한 방법 정리했습니다.
+
+# Problems
+
+`getSubdomain` 함수를 사용하다보니 발견한 문제점이 있었습니다.
+
+1. 아래 이미지에서처럼 typescript의 타입 자동완성 기능을 받고 있지만,
+   ![Image](https://github.com/user-attachments/assets/2f7bf021-e3bc-4662-be88-b7a8012ddb69)
+
+   provider의 subdomain이 바뀌는 경우 비교하는 모든 곳에서 다 값을 변경해줘야 합니다. 물론 subdomain이 바뀌는 경우는 흔치는 않겠지만, url이 바뀌는 경우는 이렇게 번거로운 작업을 해야 합니다.
+
+2. 고객사가 늘어나고 고객사별로 할인 적용 여부, 수수료 여부, 적립금 여부, 직접 로그인 가능 여부 등, 고객사 specific한 특성들이 많아졌고, 이러한 특성들을 구분하기 위해 아래 코드와 같이 `array`를 사용하고 있었습니다.
+
+   ```ts
+   // providerUtils.ts
+   const providerWithDiscountList = [
+     'provider1',
+     'provider2',
+     'provider3',
+     'provider4',
+     'provider5',
+   ] as const;
+
+   const providerWithCommissionList = ['provider6'] as const;
+
+   ...
+
+   const providerList = [
+     ...providerWithDiscountList,
+     ...providerWithCommissionList,
+     ...
+   ] as const; // 모든 고객사 리스트
+
+   type DiscountSubdomainType = (typeof providerWithDiscountList)[number]; // 할인 적용 고객사 타입
+
+   // 할인 적용 고객사 타입인지 확인하는 함수
+   export const isDiscountProvider = () => {
+     const provider = getSubdomain();
+     return (
+       provider === undefined ||
+       providerWithDiscountList.includes(provider as DiscountSubdomainType)
+     );
+   };
+
+   export const provider = getSubdomain();
+
+   ```
+
+   Array로 관리하고 있어서 새로운 특성이 추가될 때마다 새로운 Array를 만들어야하고, is[특성]Provider 함수도 만들어야 했습니다. 무엇보다 고객사에 적용되는 특성이 바뀌는 경우 특성 관련 Array를 돌아다니며 변경해야했습니다.
+
+<br />
+
+# Solutions
+
+### const enum
+
+첫 번째 문제점은 typescript의 <strong>const enum</strong>을 활용해서 refactoring 하여 개선했습니다.
+
+```ts
+// providerUtils.ts
+export const enum SubdomainProvider {
+  'Provider1' = 'provider1',
+  'Provider2' = 'provider2',
+  'Provider3' = 'provider3',
+  'Provider4' = 'provider4',
+  'Provider5' = 'provider5',
+}
+export const enum TestProvider {
+  'Provider6' = 'provider6',
+  'Dev' = 'test',
+  'Local' = 'localhost',
+}
+
+const testProvidersWithDiscount = [
+  TestProvider.Dev,
+  TestProvider.Local,
+] as const;
+const testProvidersWithCommission = [TestProvider.Provider6] as const;
+
+const providersWithDiscount = [
+  SubdomainProvider.Provider1,
+  SubdomainProvider.Provider2,
+  SubdomainProvider.Provider3,
+  SubdomainProvider.Provider4,
+  ...testProvidersWithDiscount,
+] as const;
+const providersWithCommission = [
+  SubdomainProvider.provider5,
+  ...testProvidersWithCommission,
+] as const;
+
+const providerList = [
+  ...providersWithDiscount,
+  ...providersWithCommission,
+] as const;
+```
+
+이제 사용하는 곳에서는 아래처럼 사용할 수 있습니다.
+
+```ts
+import { provider, SubdomainProvider } from "utils/providerUtils";
+
+if(provider === SubdomainProvider.Provider2) ...
+
+switch (provider) {
+  case SubdomainProvider.Provider1:
+    return providerLogo;
+  case SubdomainProvider.Provider2:
+  case TestProvider.Dev:
+    return testLogo;
+  default:
+    return;
+}
+```
+
+이런 방식으로 사용할 수 있어, subdomain이 바뀌는 경우에도 간단히 const enum의 값 변경해주면 됩니다.
+
+<br />
+
+<details>
+  <summary>
+    <strong>const enum을 사용한 이유</strong>
+  </summary>
+  <p>
+    > Const enums can only use constant enum expressions and unlike regular
+    enums > they are completely removed during compilation.
+  </p>
+  <p>
+    컴파일되면 js object로 변환되는 enum과 다르게, const enum은 컴파일 과정에서
+    제거되고 런타입에는 사라집니다. 따라서 추가적으로 코드가 생성되는 것을
+    방지할 수 있습니다.
+  </p>
+</details>
+
+<br />
+
+# 참고자료
+
+[TypeScript - Enums](https://www.typescriptlang.org/docs/handbook/enums.html#const-enums)
