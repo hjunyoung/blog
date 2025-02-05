@@ -1,0 +1,292 @@
+---
+title: [React] Subdomain별로 다르게 동작하는 코드 리팩토링하기 - 3. builder pattern 활용
+publishedAt: '2025-02-05T12:00:00.000Z'
+summary: 'URL submain에 따라 다르게 동작하는 코드 리팩토링하기'
+tags: ['React', 'Refactoring', 'Builder Pattern']
+---
+
+[지난 글](/blog/subdomain-2)에선 TypeScript의 const enum으로 providerUtils.ts를 개선했습니다.
+
+이번 글에서는 두번째 문제점을 개선하고 고객사별 관리를 쉽게하기 위해 builder pattern을 활용하여 리팩토링 한 방법 정리했습니다.
+
+# Problems
+
+고객사가 늘어나고 고객사별로 할인 적용 여부, 수수료 여부, 적립금 여부, 직접 로그인 가능 여부 등, 고객사 specific한 특성들이 많아졌고, 이러한 특성들을 구분하기 위해 아래 코드와 같이 `array`를 사용하고 있었습니다.
+
+```ts
+// providerUtils.ts
+
+// 할인 적용되는 고객사
+const providerWithDiscountList = [
+  'provider1',
+  'provider2',
+  'provider3',
+  'provider4',
+  'provider5',
+] as const;
+
+// 수수료 부과되는 고객사
+const providerWithCommissionList = ['provider6'] as const;
+
+// 적립금 적용되는 고객사
+static providerWithPoint = [
+  TestProvider.Dev,
+  TestProvider.Local,
+  SubdomainProvider.Provider1,
+];
+
+static isDiscountProvider =
+  !this.provider ||
+  this.providersWithDiscount.includes(this.provider as DiscountSubdomainType);
+static isPointProvider =
+  !this.provider ||
+  this.providerWithPoint.includes(this.provider as SubdomainType);
+static isDarkModeProvider =
+  !this.provider ||
+  this.darkModeProvider.includes(this.provider as SubdomainType);
+static isLogoutUnavailableProvider = [
+  SubdomainProvider.Provider1,
+  SubdomainProvider.Provider2,
+  TestProvider.Dev,
+].includes(this.provider as SubdomainType);
+
+
+static isProvider1 = [SubdomainProvider.Provider1, TestProvider.Provider6].includes(
+  this.provider as SubdomainType
+);
+static isProvider2 = [SubdomainProvider.Provider2].includes(
+  this.provider as SubdomainType
+);
+
+```
+
+이 방식의 문제점은 `providersWithDiscount` , `providersWithCommission` 처럼 provider마다 다른 특성(e.g. 직접 로그아웃 가능, 적립금 기능 여부, 특정 모드 사용 가능 여부 …)이 추가되는 경우 매번 Array와 is[특성]Provider 함수를 만들어서 관리해야 한다는 것입니다.
+이런 경우 provider 각각의 특성이 provider 자체에서 관리되는 것이 아니라 여러 군데에서(여러 array들) 관리되어 관리하기가 까다로워 질 수 있습니다. 고객사에 적용되는 특성이 바뀌는 경우 특성 관련 Array를 돌아다니며 변경해야 합니다.
+
+<br />
+
+# Solutions
+
+### builder pattern
+
+두 번째 문제점은 array로 고객사들을 관리하는 것으로부터 오는 유지보수 문제였습니다.
+
+고객사의 특성을 여러 array에 나눠서 관리하는 것 대신 고객사 class를 만들어서 관리하여 응집도를 높이고 유지보수를 쉽게 하였고,
+또 고객사 instance를 생성할 때 constructor에 필요한 인자가 많고, 앞으로 추가될 수도 있기 때문에 builder pattern을 사용하여 고객사 객체 생성을 쉽게 했습니다.
+
+```ts
+// providerUtils.ts
+
+class Domain {
+  private static DomainBuilder = class {
+    private _provider?: string;
+    private _loginAvailable: boolean = true;
+    private _point: boolean = true;
+    private _discount: boolean = true;
+
+    public provider(provider: string): this {
+      this._provider = provider;
+      return this;
+    }
+
+    public loginAvailable(loginAvailable: boolean): this {
+      this._loginAvailable = loginAvailable;
+      return this;
+    }
+
+    public point(point: boolean): this {
+      this._point = point;
+      return this;
+    }
+
+    public discount(discount: boolean): this {
+      this._discount = discount;
+      return this;
+    }
+
+    public build(): Domain {
+      if (!this._provider) {
+        throw new Error('provider field is required');
+      }
+      return new Domain(
+        this._provider,
+        this._loginAvailable,
+        this._point,
+        this._discount
+        // this._twPrefix
+      );
+    }
+  };
+
+  protected constructor(
+    public readonly provider: string,
+    public readonly loginAvailable: boolean,
+    public readonly point: boolean,
+    public readonly discount: boolean
+  ) {}
+
+  protected static Builder(): InstanceType<typeof Domain.DomainBuilder> {
+    return new Domain.DomainBuilder();
+  }
+}
+```
+
+이렇게 Domain class를 만들어서 provider마다 instance를 생성하여 각각의 특성들을 관리하도록 했습니다.
+
+<br />
+
+아래와 같이 builder pattern을 사용하여 필요한 특성들만 추가하여 고객사 instance를 생성할 수 있습니다.
+
+```ts
+class Subdomain extends Domain {
+  // Subdomain Objects created with Builder pattern
+  private static Provider1: Domain = Subdomain.Builder()
+    .provider('provider1')
+    .loginAvailable(false)
+    .build();
+  private static Provider2: Domain = Subdomain.Builder()
+    .provider('provider2')
+    .build();
+  private static Provider3: Domain = Subdomain.Builder()
+    .provider('lottecard')
+    .loginAvailable(false)
+    .build();
+  private static Provider4: Domain = Subdomain.Builder()
+    .provider('provider4')
+    .loginAvailable(false)
+    .build();
+}
+
+class TestDomain extends Domain {
+  // TestDomain Objects created with Builder pattern
+  private static Provider6: Domain = TestDomain.Builder()
+    .provider('provider6')
+    .loginAvailable(false)
+    .build();
+  private static Dev: Domain = TestDomain.Builder().provider('test').build();
+  private static Local: Domain = TestDomain.Builder()
+    .provider('localhost')
+    .build();
+}
+```
+
+<br />
+
+```ts
+class BaseProviderUtils {
+  private static getProviderListFrom(domain: typeof Domain) {
+    return Object.getOwnPropertyNames(domain)
+      .filter((key) => {
+        // 제외할 기본 static 필드 목록
+        const excludedFields = ['length', 'name', 'prototype'];
+
+        return (
+          !excludedFields.includes(key) && // 기본 필드 제외
+          typeof domain[key as keyof typeof domain] !== 'function'
+        );
+      }) // 함수가 아닌 static 필드만 필터링
+      .map((key) => domain[key as keyof typeof domain]);
+  }
+
+  // 운영 고객사 리스트
+  private static prodProviderList = this.getProviderListFrom(Subdomain);
+
+  // 개발 고객사 리스트
+  private static devProviderList = this.getProviderListFrom(TestDomain);
+
+  // 전체 고객사 리스트
+  private static providerList = [
+    ...this.prodProviderList,
+    ...this.devProviderList,
+  ];
+
+  // provider
+  private static getProvider() {
+    const subdomain = window.location.hostname.split('.')[0];
+
+    const getProvider = (subdomain: string) => {
+      return this.providerList.find(
+        (provider) => provider.provider === subdomain
+      );
+    };
+
+    return getProvider(subdomain);
+  }
+
+  public static get provider() {
+    return this.getProvider();
+  }
+}
+
+class CategoryProviderUtils extends BaseProviderUtils {
+  static discountAvailable = !this.provider || this.provider.discount;
+  static pointAvailable = !this.provider || this.provider.point;
+  static loginAvailable = !this.provider || this.provider.loginAvailable;
+
+  static isDev = ['test', 'localhost'].includes(
+    this.provider?.provider as string
+  );
+}
+
+export class ProviderUtils extends CategoryProviderUtils {
+  // Dynamically set isProvider static propeties for each provider
+  // TypeScript’s static type checking is based on explicitly declared properties
+  static readonly isProvider1: boolean;
+  static readonly isProvider2: boolean;
+  static readonly isProvider3: boolean;
+  static readonly isProvider4: boolean;
+  static readonly isProvider5: boolean;
+  static readonly isProvider6: boolean;
+
+  /**
+   * Dynamically defines static boolean properties on the ProviderUtils class
+   * for each provider in the Subdomain class. These properties are prefixed
+   * with 'is' followed by the provider's name (e.g., isProvider1). Each property
+   * indicates whether the current provider matches the respective provider.
+   *
+   * The method filters out non-provider static fields and functions from
+   * the Subdomain class, then uses Object.defineProperty to create the properties.
+   * These properties are non-writable and non-configurable.
+   */
+  static setIsProviderProperties() {
+    const excludedFields = ['length', 'name', 'prototype'];
+    Object.getOwnPropertyNames(Subdomain)
+      .filter(
+        (key) =>
+          !excludedFields.includes(key) && // 기본 필드 제외
+          typeof Subdomain[key as keyof typeof Subdomain] !== 'function' // 함수 제외
+      )
+      .forEach((key) => {
+        const propertyName = `is${key}`;
+        Object.defineProperty(ProviderUtils, propertyName, {
+          value: [
+            Subdomain[key as keyof typeof Subdomain].provider,
+            TestDomain[key as keyof typeof TestDomain].provider,
+          ].includes(this.provider?.provider as string),
+          writable: false,
+          configurable: false,
+        });
+      });
+  }
+}
+```
+
+실제 component 파일에서 사용할 ProviderUtils 클래스를 만들고, Object.defineProperty를 활용하여 특정 고객사인지 확인할 수 있는 static properties를 동적으로 생성해 주었습니다.
+TypeScript의 static type checking을 위해 ProviderUtils class에 is[Provider] static properties를 선언해주어 하지만, Array로 고객사들을 관리할 때, is[Provider]Provider 함수들을 직접 만들어야 하는 것보다는 더 나은 방법이라고 생각합니다.
+
+# Summary
+
+이번 리팩토링을 통해 달성한 주요 개선 사항은 아래와 같습니다.
+
+1. 응집도 향상
+
+   Provider별 특성을 개별 array가 아닌 단일 클래스에서 관리함으로써 특성 변경 시 해당 Provider 인스턴스만 수정하면 되어 유지보수가 쉬워졌습니다.
+
+2. 유연한 객체 생성
+
+   Builder pattern으로 Provider 인스턴스 생성 과정을 단순화하고 선택적 특성을 유연하게 설정할 수 있게 되었습니다.
+
+{/* TODO */}
+{/* builder 패턴을 사용하여 바꾼 이유 정리 - https://inpa.tistory.com/entry/GOF-💠-빌더Builder-패턴-끝판왕-정리 */}
+
+{/* # 참고자료 */}
